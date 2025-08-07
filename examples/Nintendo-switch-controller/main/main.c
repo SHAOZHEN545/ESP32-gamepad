@@ -26,6 +26,21 @@
 #define GPIO_BTN_START      GPIO_NUM_23
 #define GPIO_BTN_SELECT     GPIO_NUM_25
 
+#define JOYSTICK_Y_PIN ADC1_CHANNEL_6  // GPIO34
+
+void adc_init() {
+    // 1. 基础配置
+    adc1_config_width(ADC_WIDTH_BIT_12);
+    
+    // 2. 各通道单独配置（可调整衰减）
+    adc1_config_channel_atten(ADC1_CHANNEL_6, ADC_ATTEN_DB_11);  // Y轴(D34)
+    adc1_config_channel_atten(ADC1_CHANNEL_7, ADC_ATTEN_DB_11);  // X轴(D35)
+    
+    // // 3. 启用ADC校准（提升精度）
+    // esp_adc_cal_characteristics_t adc_chars;
+    // esp_adc_cal_characterize(ADC_UNIT_1, ADC_ATTEN_DB_11, ADC_WIDTH_BIT_12, 1100, &adc_chars);
+}
+
 // We want to do another define for easy setup of our GPIO pins.
 // We will use pull-up configuration so we can simply pull each
 // pin to ground to count the button as 'pressed'.
@@ -97,17 +112,40 @@ void local_button_cb()
 // This is what the callback function looks like to read the analog stick data.
 // This is read once per poll across each controller core. The analog values MUST be
 // 12 bit values. If you are getting 8 bit readings, simply bitshift them to the proper resolution.
-void local_analog_cb()
+void local_analog_cb() 
 {
-    // In this example, this function isn't used.
-    // 使用库中预设的中心值 0x740 = 1856
-    const uint16_t center = 0x740;
+    // 1. 参数配置
+    typedef struct {
+        uint16_t center;
+        uint16_t deadzone;
+        adc1_channel_t channel;
+        uint16_t *target;
+    } axis_config_t;
     
-    // 设置所有摇杆为中心值
-    hoja_analog_data.ls_x = center;  // 左摇杆X轴
-    hoja_analog_data.ls_y = center;  // 左摇杆Y轴
-    hoja_analog_data.rs_x = center;  // 右摇杆X轴
-    hoja_analog_data.rs_y = center;  // 右摇杆Y轴
+    static const axis_config_t axes[] = {
+        {2025, 35, ADC1_CHANNEL_7, &hoja_analog_data.ls_x},  // X轴(D35)
+        {1950, 30, ADC1_CHANNEL_6, &hoja_analog_data.ls_y}   // Y轴(D34)
+    };
+    
+    // 2. 处理各轴数据
+    for(int i = 0; i < sizeof(axes)/sizeof(axes[0]); i++) {
+        uint16_t raw = adc1_get_raw(axes[i].channel);
+        *(axes[i].target) = (abs(raw - axes[i].center) <= axes[i].deadzone) 
+                          ? axes[i].center 
+                          : raw;
+    }
+    
+    // 3. 固定未使用的右摇杆
+    hoja_analog_data.rs_x = loaded_settings.sx_center;
+    hoja_analog_data.rs_y = loaded_settings.sy_center;
+    
+    // // 4. 高级调试输出（每50次采样输出一次）
+    // static uint32_t count = 0;
+    // if((count++ % 50) == 0) {
+    //     printf("X轴: %d±%d → %d | Y轴: %d±%d → %d\n",
+    //            adc1_get_raw(ADC1_CHANNEL_7), axes[0].deadzone, hoja_analog_data.ls_x,
+    //            adc1_get_raw(ADC1_CHANNEL_6), axes[1].deadzone, hoja_analog_data.ls_y);
+    // }
 }
 
 // The event system callback function is needed, even if you do not use it.
@@ -144,6 +182,18 @@ void app_main(void)
     // Finalize configuration and register it.
     gpio_config(&io_conf);
 
+    // 初始化ADC
+    adc_init();
+    
+    // 校准参数
+    loaded_settings.sx_center = 2025;  // X轴中心值(D35)
+    loaded_settings.sx_min = 250;      // 保持最小值
+    loaded_settings.sx_max = 3911;     // 保持最大值
+
+    loaded_settings.sy_center = 1950;  // Y轴中心值(D34)
+    loaded_settings.sy_min = 250;
+    loaded_settings.sy_max = 3911;
+
     // These register functions MUST be called before
     // you try to initialize the API.
     // Pass the functions you've created as parameters.
@@ -159,15 +209,15 @@ void app_main(void)
     // Attempt initialization.
     err = hoja_init();
 
-    printf("Stick calibration values:\n");
-    printf("sx_center=0x%X (%d), sx_min=0x%X (%d), sx_max=0x%X (%d)\n",
-       loaded_settings.sx_center, loaded_settings.sx_center,
-       loaded_settings.sx_min, loaded_settings.sx_min,
-       loaded_settings.sx_max, loaded_settings.sx_max);
-    printf("sy_center=0x%X (%d), sy_min=0x%X (%d), sy_max=0x%X (%d)\n",
-       loaded_settings.sy_center, loaded_settings.sy_center,
-       loaded_settings.sy_min, loaded_settings.sy_min,
-       loaded_settings.sy_max, loaded_settings.sy_max);
+    // printf("Stick calibration values:\n");
+    // printf("sx_center=0x%X (%d), sx_min=0x%X (%d), sx_max=0x%X (%d)\n",
+    //    loaded_settings.sx_center, loaded_settings.sx_center,
+    //    loaded_settings.sx_min, loaded_settings.sx_min,
+    //    loaded_settings.sx_max, loaded_settings.sx_max);
+    // printf("sy_center=0x%X (%d), sy_min=0x%X (%d), sy_max=0x%X (%d)\n",
+    //    loaded_settings.sy_center, loaded_settings.sy_center,
+    //    loaded_settings.sy_min, loaded_settings.sy_min,
+    //    loaded_settings.sy_max, loaded_settings.sy_max);
 
     // Check if we initialized Ok
     if (err != HOJA_OK)
