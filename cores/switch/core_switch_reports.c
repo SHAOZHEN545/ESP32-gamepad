@@ -204,7 +204,7 @@ void ns_report_task_sendstandard(void * parameters)
         // Only send an input update if our comparison is different.
         // Saves power and processing :)
         if (ns_input_compare_full(&ns_input_long, &ns_input_long_last))
-        {
+        {   
             ns_report_clear();
         
             // Report ID is const now. REMOVE
@@ -224,7 +224,8 @@ void ns_report_task_sendstandard(void * parameters)
         }
         
         // Reset HOJA buttons
-        hoja_button_reset();
+        // The reset function called below should be commented out. Otherwise the button status will constantly and wrongly flip while long-pressing buttons
+        // hoja_button_reset();
         vTaskDelay(8 / portTICK_PERIOD_MS);
     }
 }

@@ -84,3 +84,42 @@ bool ns_input_compare_full(ns_input_long_s *one, ns_input_long_s *two)
 
     return ret;
 }
+
+// Below is the code for testing the long-pressing functionality
+
+// bool ns_input_compare_full(ns_input_long_s *one, ns_input_long_s *two)
+// {
+//     bool ret = false;
+//     static const char* TAG = "core_switch_input";
+    
+//     if (one->right_buttons != two->right_buttons) {
+//         ESP_LOGI(TAG, "right_buttons diff: 0x%02X vs 0x%02X", one->right_buttons, two->right_buttons);
+//         ret = true;
+//     }
+//     if (one->shared_buttons != two->shared_buttons) {
+//         ESP_LOGI(TAG, "shared_buttons diff: 0x%02X vs 0x%02X", one->shared_buttons, two->shared_buttons);
+//         ret = true;
+//     }
+//     if (one->left_buttons != two->left_buttons) {
+//         ESP_LOGI(TAG, "left_buttons diff: 0x%02X vs 0x%02X", one->left_buttons, two->left_buttons);
+//         ret = true;
+//     }
+//     if (one->ls_x != two->ls_x) {
+//         ESP_LOGI(TAG, "ls_x diff: %d vs %d", one->ls_x, two->ls_x);
+//         ret = true;
+//     }
+//     if (one->ls_y != two->ls_y) {
+//         ESP_LOGI(TAG, "ls_y diff: %d vs %d", one->ls_y, two->ls_y);
+//         ret = true;
+//     }
+//     if (one->rs_x != two->rs_x) {
+//         ESP_LOGI(TAG, "rs_x diff: %d vs %d", one->rs_x, two->rs_x);
+//         ret = true;
+//     }
+//     if (one->rs_y != two->rs_y) {
+//         ESP_LOGI(TAG, "rs_y diff: %d vs %d", one->rs_y, two->rs_y);
+//         ret = true;
+//     }
+
+//     return ret;
+// }
