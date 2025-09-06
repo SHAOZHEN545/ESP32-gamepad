@@ -52,6 +52,78 @@ static const adc_channel_t joystick_channels[JOYSTICK_CHANNELS_COUNT] = {
 static adc_oneshot_unit_handle_t adc1_handle;
 static adc_cali_handle_t adc_cali_handle = NULL;
 
+// ==================== 摇杆校准配置 ====================
+typedef struct {
+    uint16_t phys_min;     // 实测最小值 (a)
+    uint16_t phys_center;  // 实测中心值 (m)
+    uint16_t phys_max;     // 实测最大值 (b)
+    uint16_t deadzone;     // 死区大小
+    bool     invert;       // 是否需要反转
+} joystick_calib_t;
+
+// 左摇杆校准配置 (根据你的实测数据调整)
+static const joystick_calib_t calib_left_x = {
+    .phys_min = 0,      .phys_center = 1835, .phys_max = 4095,
+    .deadzone = 100,    .invert = true
+};
+
+static const joystick_calib_t calib_left_y = {
+    .phys_min = 0,      .phys_center = 1765, .phys_max = 4095,
+    .deadzone = 100,    .invert = true      
+};
+
+// 右摇杆校准配置 (根据你的实测数据调整)
+static const joystick_calib_t calib_right_x = {
+    .phys_min = 0,      .phys_center = 1775, .phys_max = 4095,
+    .deadzone = 100,    .invert = false
+};
+
+static const joystick_calib_t calib_right_y = {
+    .phys_min = 0,      .phys_center = 1830, .phys_max = 4095,
+    .deadzone = 100,    .invert = true      
+};
+
+// ==================== 核心映射函数 ====================
+static uint16_t map_joystick_value(uint16_t raw, const joystick_calib_t* calib)
+{
+    // HOJA库的默认校准值 (这在hoja_settings.c中已被定义好，对于每个摇杆轴都是一样的)
+    const uint16_t LIB_MIN    = 0xFA;    // 250
+    const uint16_t LIB_CENTER = 0x740;   // 1856
+    const uint16_t LIB_MAX    = 0xF47;   // 3911
+
+    // 限制输入范围
+    if (raw < calib->phys_min) raw = calib->phys_min;
+    if (raw > calib->phys_max) raw = calib->phys_max;
+
+    // 死区处理
+    if (abs(raw - calib->phys_center) <= calib->deadzone) {
+        return LIB_CENTER;
+    }
+
+    // 计算比例因子
+    float ratio;
+    if (raw > calib->phys_center) {
+        ratio = (float)(raw - calib->phys_center) / (calib->phys_max - calib->phys_center);
+    } else {
+        ratio = (float)(calib->phys_center - raw) / (calib->phys_center - calib->phys_min);
+    }
+
+    // 应用反转逻辑
+    if (calib->invert) {
+        if (raw > calib->phys_center) {
+            return LIB_CENTER - ratio * (LIB_CENTER - LIB_MIN);
+        } else {
+            return LIB_CENTER + ratio * (LIB_MAX - LIB_CENTER);
+        }
+    } else {
+        if (raw > calib->phys_center) {
+            return LIB_CENTER + ratio * (LIB_MAX - LIB_CENTER);
+        } else {
+            return LIB_CENTER - ratio * (LIB_CENTER - LIB_MIN);
+        }
+    }
+}
+
 // ADC校准初始化
 static bool adc_calibration_init()
 {
@@ -123,6 +195,8 @@ static int read_adc_raw(joystick_channel_t channel)
     return raw;
 }
 
+
+
 // We want to do another define for easy setup of our GPIO pins.
 // We will use pull-up configuration so we can simply pull each
 // pin to ground to count the button as 'pressed'.
@@ -190,103 +264,17 @@ void local_button_cb()
 // 摇杆数据处理函数（带方向反转和死区处理）
 void local_analog_cb() 
 {
-    // 定义死区大小（可根据实际情况调整）
-    const int deadzone = 100;
-
-    static int debug_count = 0;
-    
     // 读取原始ADC值
-    int ls_x_raw = read_adc_raw(CH_LS_X);
-    int ls_y_raw = read_adc_raw(CH_LS_Y);
-    int rs_x_raw = read_adc_raw(CH_RS_X);
-    int rs_y_raw = read_adc_raw(CH_RS_Y);
+    int ls_x_raw = adc1_get_raw(ADC1_CHANNEL_4); // GPIO32
+    int ls_y_raw = adc1_get_raw(ADC1_CHANNEL_5); // GPIO33
+    int rs_x_raw = adc1_get_raw(ADC1_CHANNEL_6); // GPIO34
+    int rs_y_raw = adc1_get_raw(ADC1_CHANNEL_7); // GPIO35
     
-    if (debug_count++ % 10 == 0) {  // 每10次采样输出一次调试信息
-        printf("\n=== 原始ADC读数 ===\n");
-        printf("LS_X: %4d (中心: %4d)\n", ls_x_raw, loaded_settings.sx_center);
-        printf("LS_Y: %4d (中心: %4d)\n", ls_y_raw, loaded_settings.sy_center);
-        printf("RS_X: %4d (中心: %4d)\n", rs_x_raw, loaded_settings.cx_center);
-        printf("RS_Y: %4d (中心: %4d)\n", rs_y_raw, loaded_settings.cy_center);
-    }
-    
-    // 左摇杆处理 ==================================
-    // X轴处理（需要反转方向）
-    int ls_x_diff = ls_x_raw - loaded_settings.sx_center;
-    if(abs(ls_x_diff) < deadzone) {
-        ls_x_raw = loaded_settings.sx_center;
-        if (debug_count % 10 == 0) printf("LS_X: 在死区内，设为中心值\n");
-    } else {
-        // 基于中心值的对称反转
-        ls_x_raw = loaded_settings.sx_center - ls_x_diff;
-        if (debug_count % 10 == 0) {
-            printf("LS_X: 差值=%d, 反转后=%d\n", ls_x_diff, ls_x_raw);
-        }
-    }
-    
-    // Y轴处理（需要反转方向）
-    int ls_y_diff = ls_y_raw - loaded_settings.sy_center;
-    if(abs(ls_y_diff) < deadzone) {
-        ls_y_raw = loaded_settings.sy_center;
-        if (debug_count % 10 == 0) printf("LS_Y: 在死区内，设为中心值\n");
-    } else {
-        ls_y_raw = loaded_settings.sy_center - ls_y_diff;
-        if (debug_count % 10 == 0) {
-            printf("LS_Y: 差值=%d, 反转后=%d\n", ls_y_diff, ls_y_raw);
-        }
-    }
-    
-    // 右摇杆处理 ==================================
-    // X轴处理（需要反转方向）
-    int rs_x_diff = rs_x_raw - loaded_settings.cx_center;
-    if(abs(rs_x_diff) < deadzone) {
-        rs_x_raw = loaded_settings.cx_center;
-        if (debug_count % 10 == 0) printf("RS_X: 在死区内，设为中心值\n");
-    } else {
-        rs_x_raw = loaded_settings.cx_center - rs_x_diff;
-        if (debug_count % 10 == 0) {
-            printf("RS_X: 差值=%d, 反转后=%d\n", rs_x_diff, rs_x_raw);
-        }
-    }
-    
-    // Y轴处理（不需要反转方向）
-    int rs_y_diff = rs_y_raw - loaded_settings.cy_center;
-    if(abs(rs_y_diff) < deadzone) {
-        rs_y_raw = loaded_settings.cy_center;
-        if (debug_count % 10 == 0) printf("RS_Y: 在死区内，设为中心值\n");
-    } else {
-        if (debug_count % 10 == 0) {
-            printf("RS_Y: 差值=%d, 保持原值=%d\n", rs_y_diff, rs_y_raw);
-        }
-    }
-    
-    // 限制范围
-    ls_x_raw = (ls_x_raw < 0) ? 0 : (ls_x_raw > 4095) ? 4095 : ls_x_raw;
-    ls_y_raw = (ls_y_raw < 0) ? 0 : (ls_y_raw > 4095) ? 4095 : ls_y_raw;
-    rs_x_raw = (rs_x_raw < 0) ? 0 : (rs_x_raw > 4095) ? 4095 : rs_x_raw;
-    rs_y_raw = (rs_y_raw < 0) ? 0 : (rs_y_raw > 4095) ? 4095 : rs_y_raw;
-    
-    if (debug_count % 10 == 0) {
-        printf("=== 限制范围后 ===\n");
-        printf("LS_X: %4d\n", ls_x_raw);
-        printf("LS_Y: %4d\n", ls_y_raw);
-        printf("RS_X: %4d\n", rs_x_raw);
-        printf("RS_Y: %4d\n", rs_y_raw);
-    }
-    
-    // 设置到HOJA数据结构中
-    hoja_analog_data.ls_x = ls_x_raw;
-    hoja_analog_data.ls_y = ls_y_raw;
-    hoja_analog_data.rs_x = rs_x_raw;
-    hoja_analog_data.rs_y = rs_y_raw;
-    
-    if (debug_count % 10 == 0) {
-        printf("=== 最终输出值 ===\n");
-        printf("LS_X: %4d\n", hoja_analog_data.ls_x);
-        printf("LS_Y: %4d\n", hoja_analog_data.ls_y);
-        printf("RS_X: %4d\n", hoja_analog_data.rs_x);
-        printf("RS_Y: %4d\n", hoja_analog_data.rs_y);
-        printf("==================\n");
-    }
+    // 应用校准映射
+    hoja_analog_data.ls_x = map_joystick_value(ls_x_raw, &calib_left_x);
+    hoja_analog_data.ls_y = map_joystick_value(ls_y_raw, &calib_left_y);
+    hoja_analog_data.rs_x = map_joystick_value(rs_x_raw, &calib_right_x);
+    hoja_analog_data.rs_y = map_joystick_value(rs_y_raw, &calib_right_y);
 }
 
 // The event system callback function is needed, even if you do not use it.
@@ -308,23 +296,6 @@ void app_main(void)
 
     // 初始化ADC
     adc_init();
-    
-    // 设置摇杆校准参数（使用原始中心值，不需要反转）
-    loaded_settings.sx_min = 0;
-    loaded_settings.sx_center = 1840;  // 左摇杆X中心值
-    loaded_settings.sx_max = 4095;
-
-    loaded_settings.sy_min = 0;
-    loaded_settings.sy_center = 1735;  // 左摇杆Y中心值
-    loaded_settings.sy_max = 4095;
-
-    loaded_settings.cx_min = 0;
-    loaded_settings.cx_center = 1810;  // 右摇杆X中心值
-    loaded_settings.cx_max = 4095;
-
-    loaded_settings.cy_min = 0;
-    loaded_settings.cy_center = 1840;  // 右摇杆Y中心值
-    loaded_settings.cy_max = 4095;
 
     // Set up IO configuration
     gpio_config_t io_conf = {0};
@@ -374,14 +345,6 @@ void app_main(void)
 
         // For this project, we will start the Nintendo Switch bluetooth gamepad core.
         // Once the controller turns on, it'll automatically try to connect with NS
-        // 2. 设置校准值（使用你的实测值）
-        hoja_set_analog_calibration(HOJA_ANALOG_LEFT_X, 0, 4095, 1835);
-        hoja_set_analog_calibration(HOJA_ANALOG_LEFT_Y, 0, 4095, 1765);
-        hoja_set_analog_calibration(HOJA_ANALOG_RIGHT_X, 0, 4095, 1775);
-        hoja_set_analog_calibration(HOJA_ANALOG_RIGHT_Y, 0, 4095, 1830);
-        
-        // 3. 保存设置
-        hoja_settings_saveall();
 
         hoja_set_core(HOJA_CORE_NS);
 
