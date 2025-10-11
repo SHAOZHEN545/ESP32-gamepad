@@ -5,6 +5,58 @@
 #include "esp_adc/adc_oneshot.h"
 #include "esp_adc/adc_cali.h"
 #include "esp_adc/adc_cali_scheme.h"
+#include "driver/touch_pad.h"
+
+//============================================= 触摸板配置 =============================================
+#define TOUCH_PAD TOUCH_PAD_NUM0  // 使用触摸板0
+static const char *TOUCH_TAG = "TOUCH";
+static uint16_t touch_base_value = 0;  // 基准电容值（未触摸时）
+static bool touch_calibrated = false;  // 是否已完成校准
+
+// 初始化触摸板
+void custom_touch_init()
+{
+    // 初始化触摸板
+    ESP_ERROR_CHECK(touch_pad_init());
+    
+    // 配置触摸板（不设置阈值）
+    ESP_ERROR_CHECK(touch_pad_config(TOUCH_PAD, 0));  // 阈值设为0，因为我们不关心
+    
+    // 设置滤波（可选，根据你的需求）
+    ESP_ERROR_CHECK(touch_pad_filter_start(10));  // 滤波周期为10ms
+    
+    // 校准触摸板（读取10次取平均值）
+    uint16_t touch_value;
+    uint32_t sum = 0;
+    const int calibration_samples = 10;
+    
+    ESP_LOGI(TOUCH_TAG, "开始触摸板校准，请勿触摸铝板...");
+    for (int i = 0; i < calibration_samples; i++) {
+        ESP_ERROR_CHECK(touch_pad_read_raw_data(TOUCH_PAD, &touch_value));
+        sum += touch_value;
+        vTaskDelay(pdMS_TO_TICKS(100));
+    }
+    
+    touch_base_value = sum / calibration_samples;
+    touch_calibrated = true;
+    
+    ESP_LOGI(TOUCH_TAG, "触摸板校准完成，基准值: %d", touch_base_value);
+}
+
+// 检测触摸状态
+bool is_touched()
+{
+    if (!touch_calibrated) return false;
+    
+    uint16_t touch_value;
+    ESP_ERROR_CHECK(touch_pad_read_raw_data(TOUCH_PAD, &touch_value));
+    
+    // 当触摸值比基准值低30%时判定为触摸
+    // 你可以调整这个阈值（0.7表示30%下降，0.6表示40%下降等）
+    const float touch_threshold = 0.7f;
+    
+    return touch_value < (touch_base_value * touch_threshold);
+}
 
 //============================================= TCA9555相关配置 =============================================
 // TCA9555 按钮引脚定义
@@ -97,10 +149,9 @@ static esp_err_t read_register(uint8_t reg, uint8_t *value) {
 #define GPIO_BTN_DPAD_D     GPIO_NUM_26
 #define GPIO_BTN_DPAD_R     GPIO_NUM_14
 #define GPIO_BTN_ZL         GPIO_NUM_13
-#define GPIO_BTN_ZR         GPIO_NUM_23
 
 // GPIO输入引脚掩码
-#define GPIO_INPUT_PIN_MASK     ( (1ULL << GPIO_BTN_A)|(1ULL << GPIO_BTN_B)|(1ULL << GPIO_BTN_X)|(1ULL << GPIO_BTN_Y)|(1ULL << GPIO_BTN_DPAD_U)|(1ULL << GPIO_BTN_DPAD_L)|(1ULL << GPIO_BTN_DPAD_D)|(1ULL << GPIO_BTN_DPAD_R)|(1ULL << GPIO_BTN_ZL)|(1ULL << GPIO_BTN_ZR))
+#define GPIO_INPUT_PIN_MASK     ( (1ULL << GPIO_BTN_A)|(1ULL << GPIO_BTN_B)|(1ULL << GPIO_BTN_X)|(1ULL << GPIO_BTN_Y)|(1ULL << GPIO_BTN_DPAD_U)|(1ULL << GPIO_BTN_DPAD_L)|(1ULL << GPIO_BTN_DPAD_D)|(1ULL << GPIO_BTN_DPAD_R)|(1ULL << GPIO_BTN_ZL))
 
 // 摇杆通道定义
 typedef enum {
@@ -176,7 +227,7 @@ static const joystick_calib_t calib_left_y_precise = {
 
 // 右摇杆X轴 - 灵敏模式(默认)
 static const joystick_calib_t calib_right_x_sensitive = {
-    .phys_min = 1435,      .phys_center = 1835, .phys_max = 2235,
+    .phys_min = 1485,      .phys_center = 1835, .phys_max = 2285,
     .deadzone = 100,    .invert = true,
     .lib_min = 0xFA,    .lib_center = 0x740 + 0x80, .lib_max = 0xF47
 };
@@ -190,7 +241,7 @@ static const joystick_calib_t calib_right_x_precise = {
 
 // 右摇杆Y轴 - 灵敏模式(默认)
 static const joystick_calib_t calib_right_y_sensitive = {
-    .phys_min = 1445,      .phys_center = 1845, .phys_max = 2245,
+    .phys_min = 1495,      .phys_center = 1845, .phys_max = 2195,
     .deadzone = 100,    .invert = false,
     .lib_min = 0xFA,    .lib_center = 0x740 + 0x80, .lib_max = 0xF47
 };
@@ -378,7 +429,9 @@ void local_button_cb()
     hoja_button_data.button_left    = !util_getbit(register_read_low, GPIO_BTN_Y);
 
     hoja_button_data.trigger_zl     = !util_getbit(register_read_low, GPIO_BTN_ZL);
-    hoja_button_data.trigger_zr     = !util_getbit(register_read_low, GPIO_BTN_ZR);
+    
+    // 使用触摸板检测ZR触发
+    hoja_button_data.trigger_zr     = is_touched();
     
     // 从TCA9555读取的按钮 (使用宏定义)
     // Port0按钮
@@ -460,6 +513,9 @@ void app_main(void)
     // (void)calib_left_y;
     // (void)calib_right_x;
     // (void)calib_right_y;
+
+    // 初始化触摸板
+    custom_touch_init();
 
     // 初始化 I2C 和 TCA9555
     i2c_master_init();
