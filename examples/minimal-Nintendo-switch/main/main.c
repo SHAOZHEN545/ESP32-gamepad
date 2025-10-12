@@ -5,8 +5,8 @@
 // defines in this way makes the code easier to read and change later on.
 #define GPIO_BTN_A          GPIO_NUM_19
 #define GPIO_BTN_B          GPIO_NUM_18
-#define GPIO_BTN_X          GPIO_NUM_17
-#define GPIO_BTN_Y          GPIO_NUM_16
+#define GPIO_BTN_X          GPIO_NUM_22
+#define GPIO_BTN_Y          GPIO_NUM_21
 #define GPIO_BTN_DPAD_U     GPIO_NUM_25 
 #define GPIO_BTN_DPAD_L     GPIO_NUM_27
 #define GPIO_BTN_DPAD_D     GPIO_NUM_26
