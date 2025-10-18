@@ -46,9 +46,9 @@ volatile int16_t mouse_delta_y = 0;
 #define JOYSTICK_RS_MAX     0xF47          // 3911
 
 // --- Mouse to Stick Conversion Settings ---
-#define MOUSE_SENSITIVITY       250.0f // ★★★ 您可以调整这个值来改变视角移动速度 ★★★
-#define MOUSE_IDLE_TIMEOUT_MS   40   // 鼠标停止移动后，摇杆自动回中前的延迟（毫秒）
+#define MOUSE_SENSITIVITY       1500.0f // ★★★ 您可以调整这个值来改变视角移动速度 ★★★
 
+#define MOUSE_IDLE_TIMEOUT_MS   12   // 鼠标停止移动后，摇杆自动回中前的延迟（毫秒）
 static uint32_t last_mouse_move_time_ms = 0; // 追踪上次鼠标移动的时间
 
 // Helper function to keep stick values within the valid 12-bit range
@@ -198,8 +198,6 @@ void local_analog_cb()
 
         // Calculate new stick positions
         int stick_x = JOYSTICK_RS_CENTER + (int)(current_delta_x * MOUSE_SENSITIVITY);
-        
-        // Invert Y-axis for typical FPS camera control (move mouse up -> look up)
         int stick_y = JOYSTICK_RS_CENTER - (int)(current_delta_y * MOUSE_SENSITIVITY);
 
         // Assign the clamped values to the right stick
@@ -209,11 +207,14 @@ void local_analog_cb()
     else
     {
         // Mouse has not moved, check for idle timeout to re-center the stick
-        if ((esp_log_timestamp() - last_mouse_move_time_ms) > MOUSE_IDLE_TIMEOUT_MS)
+        if ((esp_log_timestamp() - last_mouse_move_time_ms) > MOUSE_IDLE_TIMEOUT_MS) // 这行会变成 (timestamp - last_time) > 12
         {
             hoja_analog_data.rs_x = JOYSTICK_RS_CENTER;
             hoja_analog_data.rs_y = JOYSTICK_RS_CENTER;
         }
+        // 如果 (timestamp - last_time) <= 12，代码会进入隐藏的 else:
+        // (do nothing)
+        // 此时 hoja_analog_data.rs_x 会保持上次的值，这就是平滑的关键！
     }
 }
 
