@@ -78,38 +78,34 @@ void uart_init(void) {
 void ch9350_reader_task(void *pvParameters) {
     uint8_t *data = (uint8_t *) malloc(BUF_SIZE);
     
-    // 定义一个结构体来存放解析后的数据
-    typedef struct {
-        uint8_t buttons;
-        int8_t  x;
-        int8_t  y;
-        int8_t  wheel;
-    } mouse_data_t;
-    mouse_data_t mouse;
+    if (data == NULL) {
+        ESP_LOGE(TAG, "Failed to malloc data buffer! Task aborting.");
+        vTaskDelete(NULL); 
+    }
 
-    ESP_LOGI(TAG, "Starting CH9350 PARSER task."); // TAG可以改成"CH9350_PARSER"
+    ESP_LOGI(TAG, "Starting CH9350 PARSER task.");
 
     while (1) {
-        int len = uart_read_bytes(UART_PORT_NUM, data, BUF_SIZE, 20 / portTICK_PERIOD_MS);
+        int len = uart_read_bytes(UART_PORT_NUM, data, BUF_SIZE, 0); 
         
         if (len > 0) {
             for (int i = 0; i < len; ++i) {
-                // 检查帧头和数据标识
-                if (data[i] == 0x57 && i + 6 < len && data[i+1] == 0xAB && data[i+2] == 0x02) {
+        
+                // 改为 vTaskDelay(1)
+                if ((i > 0) && (i % 256) == 0) {
+                    vTaskDelay(1);
+                }
 
-                    // We accumulate the movement deltas.
-                    // The analog stick reading function will consume and reset them.
+                if (data[i] == 0x57 && i + 6 < len && data[i+1] == 0xAB && data[i+2] == 0x02) {
                     mouse_delta_x += (int8_t)data[i+4];
                     mouse_delta_y += (int8_t)data[i+5];
-
-                    // We will handle mouse buttons later. For now, we ignore them.
-                    // mouse.buttons = data[i+3];
-                    // mouse.wheel   = (int8_t)data[i+6];
-
-                    i += 6; // 跳过已处理的帧
+                    i += 6;
                 }
             }
         }
+        
+        // 改为 vTaskDelay(1)
+        vTaskDelay(1); 
     }
     free(data);
 }
