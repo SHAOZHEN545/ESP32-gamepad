@@ -46,9 +46,9 @@ volatile int16_t mouse_delta_y = 0;
 #define JOYSTICK_RS_MAX     0xF47          // 3911
 
 // --- Mouse to Stick Conversion Settings ---
-#define MOUSE_SENSITIVITY       1500.0f // ★★★ 您可以调整这个值来改变视角移动速度 ★★★
+#define MOUSE_SENSITIVITY       500.0f // ★★★ 您可以调整这个值来改变视角移动速度 ★★★
+#define MOUSE_IDLE_TIMEOUT_MS   40   // 鼠标停止移动后，摇杆自动回中前的延迟（毫秒）
 
-#define MOUSE_IDLE_TIMEOUT_MS   12   // 鼠标停止移动后，摇杆自动回中前的延迟（毫秒）
 static uint32_t last_mouse_move_time_ms = 0; // 追踪上次鼠标移动的时间
 
 // Helper function to keep stick values within the valid 12-bit range
@@ -85,13 +85,18 @@ void ch9350_reader_task(void *pvParameters) {
 
     ESP_LOGI(TAG, "Starting CH9350 PARSER task.");
 
+    // ★★★ 新增变量: 追踪鼠标是否在移动 ★★★
+    bool mouse_was_moving = false;
+
     while (1) {
         int len = uart_read_bytes(UART_PORT_NUM, data, BUF_SIZE, 0); 
         
         if (len > 0) {
+            // ★★★ 标记：鼠标在动 ★★★
+            mouse_was_moving = true; 
+
             for (int i = 0; i < len; ++i) {
-        
-                // 改为 vTaskDelay(1)
+                
                 if ((i > 0) && (i % 256) == 0) {
                     vTaskDelay(1);
                 }
@@ -103,8 +108,25 @@ void ch9350_reader_task(void *pvParameters) {
                 }
             }
         }
+        else // ★★★ 关键修改：当 len == 0 时 ★★★
+        {
+            // 如果 len == 0，说明在过去的 10ms 里没有鼠标数据
+            // 我们检查 mouse_was_moving 标志
+            if (mouse_was_moving)
+            {
+                // 这说明鼠标 *刚刚* 停下！
+                // 我们必须立刻触发摇杆回中
+                
+                // 我们通过“伪造”一个很早的时间戳来实现
+                // (esp_log_timestamp() - (MOUSE_IDLE_TIMEOUT_MS + 1))
+                // 这能100%保证 local_analog_cb 下次检查时会超时
+                last_mouse_move_time_ms = esp_log_timestamp() - (MOUSE_IDLE_TIMEOUT_MS + 1);
+
+                // 重置标志
+                mouse_was_moving = false;
+            }
+        }
         
-        // 改为 vTaskDelay(1)
         vTaskDelay(1); 
     }
     free(data);
@@ -198,6 +220,8 @@ void local_analog_cb()
 
         // Calculate new stick positions
         int stick_x = JOYSTICK_RS_CENTER + (int)(current_delta_x * MOUSE_SENSITIVITY);
+        
+        // Invert Y-axis for typical FPS camera control (move mouse up -> look up)
         int stick_y = JOYSTICK_RS_CENTER - (int)(current_delta_y * MOUSE_SENSITIVITY);
 
         // Assign the clamped values to the right stick
@@ -207,14 +231,11 @@ void local_analog_cb()
     else
     {
         // Mouse has not moved, check for idle timeout to re-center the stick
-        if ((esp_log_timestamp() - last_mouse_move_time_ms) > MOUSE_IDLE_TIMEOUT_MS) // 这行会变成 (timestamp - last_time) > 12
+        if ((esp_log_timestamp() - last_mouse_move_time_ms) > MOUSE_IDLE_TIMEOUT_MS)
         {
             hoja_analog_data.rs_x = JOYSTICK_RS_CENTER;
             hoja_analog_data.rs_y = JOYSTICK_RS_CENTER;
         }
-        // 如果 (timestamp - last_time) <= 12，代码会进入隐藏的 else:
-        // (do nothing)
-        // 此时 hoja_analog_data.rs_x 会保持上次的值，这就是平滑的关键！
     }
 }
 
