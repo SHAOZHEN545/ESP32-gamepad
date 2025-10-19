@@ -39,6 +39,7 @@ static const char *TAG = "CH9350_PARSER";
 // mouse_delta accumulates movement data from the UART task.
 volatile int16_t mouse_delta_x = 0;
 volatile int16_t mouse_delta_y = 0;
+volatile uint8_t mouse_buttons = 0; // ★★★ 新增：用于存储鼠标按键状态 ★★★
 
 // --- Right Stick Constants for HOJA (12-bit values) ---
 #define JOYSTICK_RS_CENTER  (0x740 + 0x80) // 1984
@@ -46,7 +47,7 @@ volatile int16_t mouse_delta_y = 0;
 #define JOYSTICK_RS_MAX     0xF47          // 3911
 
 // --- Mouse to Stick Conversion Settings ---
-#define MOUSE_SENSITIVITY       500.0f // ★★★ 您可以调整这个值来改变视角移动速度 ★★★
+#define MOUSE_SENSITIVITY       200.0f // ★★★ 您可以调整这个值来改变视角移动速度 ★★★
 #define MOUSE_IDLE_TIMEOUT_MS   40   // 鼠标停止移动后，摇杆自动回中前的延迟（毫秒）
 
 static uint32_t last_mouse_move_time_ms = 0; // 追踪上次鼠标移动的时间
@@ -85,16 +86,16 @@ void ch9350_reader_task(void *pvParameters) {
 
     ESP_LOGI(TAG, "Starting CH9350 PARSER task.");
 
-    // ★★★ 新增变量: 追踪鼠标是否在移动 ★★★
     bool mouse_was_moving = false;
 
     while (1) {
         int len = uart_read_bytes(UART_PORT_NUM, data, BUF_SIZE, 0); 
         
-        if (len > 0) {
-            // ★★★ 标记：鼠标在动 ★★★
-            mouse_was_moving = true; 
+        // ★★★ 新增：本地循环标志 ★★★
+        // (用于区分“仅按键”和“带移动”的数据包)
+        bool deltas_found_this_cycle = false; 
 
+        if (len > 0) {
             for (int i = 0; i < len; ++i) {
                 
                 if ((i > 0) && (i % 256) == 0) {
@@ -102,30 +103,42 @@ void ch9350_reader_task(void *pvParameters) {
                 }
 
                 if (data[i] == 0x57 && i + 6 < len && data[i+1] == 0xAB && data[i+2] == 0x02) {
-                    mouse_delta_x += (int8_t)data[i+4];
-                    mouse_delta_y += (int8_t)data[i+5];
+                    
+                    // ★★★ 修改：同时解析 x, y, 和按键 ★★★
+                    int8_t dx = (int8_t)data[i+4];
+                    int8_t dy = (int8_t)data[i+5];
+                    
+                    mouse_delta_x += dx;
+                    mouse_delta_y += dy;
+                    mouse_buttons = data[i+3]; // ★★★ 新增：更新全局按键状态 ★★★
+
+                    if (dx != 0 || dy != 0)
+                    {
+                        deltas_found_this_cycle = true; // ★★★ 修改：仅在x/y移动时标记 ★★★
+                    }
                     i += 6;
                 }
             }
-        }
-        else // ★★★ 关键修改：当 len == 0 时 ★★★
+        } 
+
+        // ★★★ 修改：“刹车”逻辑 ★★★
+        if (deltas_found_this_cycle)
         {
-            // 如果 len == 0，说明在过去的 10ms 里没有鼠标数据
-            // 我们检查 mouse_was_moving 标志
+            // 如果鼠标X/Y有移动，设置“正在移动”标志
+            mouse_was_moving = true;
+        }
+        else if (len == 0) 
+        {
+            // 如果没有收到任何数据 (len==0) ...
             if (mouse_was_moving)
             {
-                // 这说明鼠标 *刚刚* 停下！
-                // 我们必须立刻触发摇杆回中
-                
-                // 我们通过“伪造”一个很早的时间戳来实现
-                // (esp_log_timestamp() - (MOUSE_IDLE_TIMEOUT_MS + 1))
-                // 这能100%保证 local_analog_cb 下次检查时会超时
+                // ... 并且我们 *之前* 在移动，说明鼠标 *刚刚* 停止
+                // 应用“刹车”
                 last_mouse_move_time_ms = esp_log_timestamp() - (MOUSE_IDLE_TIMEOUT_MS + 1);
-
-                // 重置标志
                 mouse_was_moving = false;
             }
         }
+        // (如果 len > 0 但 deltas_found_this_cycle = false, 说明只是按键，不触发刹车逻辑)
         
         vTaskDelay(1); 
     }
@@ -180,7 +193,18 @@ void local_button_cb()
     // unsure of some types and want to quickly get more information on a function
     // or unknown type. Simply right click and select "Go to definition"!
     hoja_button_data.trigger_zl      = !util_getbit(register_read_low, GPIO_BTN_ZL);
-    hoja_button_data.trigger_zr      = !util_getbit(register_read_low, GPIO_BTN_ZR);
+
+    // ★★★ 关键修改：ZR 逻辑 ★★★
+    
+    // 1. 读取物理按键 (GPIO_BTN_ZR) 的状态
+    bool physical_zr = !util_getbit(register_read_low, GPIO_BTN_ZR);
+    
+    // 2. 读取鼠标右键的状态 (bit 1, 值为 0x02)
+    //    (mouse_buttons & 0x02) 的结果非0即为按下
+    bool mouse_zr = (mouse_buttons & 0x02) != 0;
+
+    // 3. 使用 "OR" 逻辑合并：只要任意一个按下，ZR就按下
+    hoja_button_data.trigger_zr = physical_zr || mouse_zr;
 
     hoja_button_data.button_select  = !util_getbit(register_read_low, GPIO_BTN_SELECT);
     hoja_button_data.button_start   = !util_getbit(register_read_low, GPIO_BTN_START);
