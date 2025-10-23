@@ -28,7 +28,7 @@
 // --- CH9350 Mouse UART Configuration ---
 #define UART_PORT_NUM       UART_NUM_2
 #define UART_RX_PIN         16 // CH9350L TXD Connects to this pin
-#define UART_TX_PIN         17 // Required for setup, but not used for sending
+// #define UART_TX_PIN         17 // Required for setup, but not used for sending
 #define UART_BAUD_RATE      115200
 #define BUF_SIZE            (1024)
 
@@ -72,7 +72,7 @@ void uart_init(void) {
     };
     ESP_ERROR_CHECK(uart_driver_install(UART_PORT_NUM, BUF_SIZE * 2, 0, 0, NULL, 0));
     ESP_ERROR_CHECK(uart_param_config(UART_PORT_NUM, &uart_config));
-    ESP_ERROR_CHECK(uart_set_pin(UART_PORT_NUM, UART_TX_PIN, UART_RX_PIN, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE));
+    ESP_ERROR_CHECK(uart_set_pin(UART_PORT_NUM, UART_PIN_NO_CHANGE, UART_RX_PIN, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE));
     ESP_LOGI(TAG, "UART driver installed and configured for RAW data reading.");
 }
 

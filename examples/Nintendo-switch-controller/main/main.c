@@ -8,10 +8,13 @@
 #include "driver/touch_pad.h"
 
 //============================================= 触摸板配置 =============================================
-#define TOUCH_PAD TOUCH_PAD_NUM0  // 使用触摸板0
+#define TOUCH_PAD_ZR TOUCH_PAD_NUM0 // ZR用TOUCH0
+#define TOUCH_PAD_ZL TOUCH_PAD_NUM4
 static const char *TOUCH_TAG = "TOUCH";
-static uint16_t touch_base_value = 0;  // 基准电容值（未触摸时）
-static bool touch_calibrated = false;  // 是否已完成校准
+static uint16_t touch_base_value_zr = 0; // ZR (Touch 0) 的基准值
+static uint16_t touch_base_value_zl = 0; // ZL (Touch 4) 的基准值
+static bool touch_calibrated_zr = false;
+static bool touch_calibrated_zl = false;
 
 // 初始化触摸板
 void custom_touch_init()
@@ -20,42 +23,70 @@ void custom_touch_init()
     ESP_ERROR_CHECK(touch_pad_init());
     
     // 配置触摸板（不设置阈值）
-    ESP_ERROR_CHECK(touch_pad_config(TOUCH_PAD, 0));  // 阈值设为0，因为我们不关心
+    ESP_ERROR_CHECK(touch_pad_config(TOUCH_PAD_ZR, 0)); // 配置ZR
+    ESP_ERROR_CHECK(touch_pad_config(TOUCH_PAD_ZL, 0)); // 配置ZL
     
     // 设置滤波（可选，根据你的需求）
     ESP_ERROR_CHECK(touch_pad_filter_start(10));  // 滤波周期为10ms
     
-    // 校准触摸板（读取10次取平均值）
+    // --- 校准 ZR (Touch 0) ---
     uint16_t touch_value;
     uint32_t sum = 0;
     const int calibration_samples = 10;
     
-    ESP_LOGI(TOUCH_TAG, "开始触摸板校准，请勿触摸铝板...");
+    ESP_LOGI(TOUCH_TAG, "开始触摸板ZR校准，请勿触摸铝板...");
     for (int i = 0; i < calibration_samples; i++) {
-        ESP_ERROR_CHECK(touch_pad_read_raw_data(TOUCH_PAD, &touch_value));
+        ESP_ERROR_CHECK(touch_pad_read_raw_data(TOUCH_PAD_ZR, &touch_value));
         sum += touch_value;
         vTaskDelay(pdMS_TO_TICKS(100));
     }
     
-    touch_base_value = sum / calibration_samples;
-    touch_calibrated = true;
+    touch_base_value_zr = sum / calibration_samples;
+    touch_calibrated_zr = true;
+    ESP_LOGI(TOUCH_TAG, "触摸板(ZR)校准完成，基准值: %d", touch_base_value_zr);
     
-    ESP_LOGI(TOUCH_TAG, "触摸板校准完成，基准值: %d", touch_base_value);
+    // --- 校准 ZL (Touch 4) ---
+    sum = 0; // 重置sum
+    ESP_LOGI(TOUCH_TAG, "开始触摸板(ZL)校准，请勿触摸...");
+    for (int i = 0; i < calibration_samples; i++) {
+        ESP_ERROR_CHECK(touch_pad_read_raw_data(TOUCH_PAD_ZL, &touch_value));
+        sum += touch_value;
+        vTaskDelay(pdMS_TO_TICKS(100));
+    }
+
+    touch_base_value_zl = sum / calibration_samples;
+    touch_calibrated_zl = true;
+
+    ESP_LOGI(TOUCH_TAG, "触摸板(ZL)校准完成，基准值: %d", touch_base_value_zl);
 }
 
-// 检测触摸状态
-bool is_touched()
+// 检测ZR触摸状态
+bool is_touched_zr()
 {
-    if (!touch_calibrated) return false;
+    if (!touch_calibrated_zr) return false;
     
     uint16_t touch_value;
-    ESP_ERROR_CHECK(touch_pad_read_raw_data(TOUCH_PAD, &touch_value));
+    ESP_ERROR_CHECK(touch_pad_read_raw_data(TOUCH_PAD_ZR, &touch_value));
     
     // 当触摸值比基准值低30%时判定为触摸
     // 你可以调整这个阈值（0.7表示30%下降，0.6表示40%下降等）
     const float touch_threshold = 0.7f;
     
-    return touch_value < (touch_base_value * touch_threshold);
+    return touch_value < (touch_base_value_zr * touch_threshold);
+}
+
+// 检测ZL触摸状态
+bool is_touched_zl()
+{
+    if (!touch_calibrated_zl) return false;
+
+    uint16_t touch_value;
+    ESP_ERROR_CHECK(touch_pad_read_raw_data(TOUCH_PAD_ZL, &touch_value));
+
+    // 当触摸值比基准值低30%时判定为触摸
+    const float touch_threshold = 0.7f;
+
+    return touch_value < (touch_base_value_zl * touch_threshold);
 }
 
 //============================================= TCA9555相关配置 =============================================
@@ -143,27 +174,24 @@ static esp_err_t read_register(uint8_t reg, uint8_t *value) {
 #define GPIO_BTN_A          GPIO_NUM_19
 #define GPIO_BTN_B          GPIO_NUM_18
 #define GPIO_BTN_X          GPIO_NUM_17
-#define GPIO_BTN_Y          GPIO_NUM_16
+#define GPIO_BTN_Y          GPIO_NUM_23
 #define GPIO_BTN_DPAD_U     GPIO_NUM_25 
 #define GPIO_BTN_DPAD_L     GPIO_NUM_27
 #define GPIO_BTN_DPAD_D     GPIO_NUM_26
 #define GPIO_BTN_DPAD_R     GPIO_NUM_14
-#define GPIO_BTN_ZL         GPIO_NUM_13
 
 // GPIO输入引脚掩码
-#define GPIO_INPUT_PIN_MASK     ( (1ULL << GPIO_BTN_A)|(1ULL << GPIO_BTN_B)|(1ULL << GPIO_BTN_X)|(1ULL << GPIO_BTN_Y)|(1ULL << GPIO_BTN_DPAD_U)|(1ULL << GPIO_BTN_DPAD_L)|(1ULL << GPIO_BTN_DPAD_D)|(1ULL << GPIO_BTN_DPAD_R)|(1ULL << GPIO_BTN_ZL))
+#define GPIO_INPUT_PIN_MASK     ( (1ULL << GPIO_BTN_A)|(1ULL << GPIO_BTN_B)|(1ULL << GPIO_BTN_X)|(1ULL << GPIO_BTN_Y)|(1ULL << GPIO_BTN_DPAD_U)|(1ULL << GPIO_BTN_DPAD_L)|(1ULL << GPIO_BTN_DPAD_D)|(1ULL << GPIO_BTN_DPAD_R))
 
 // 摇杆通道定义
 typedef enum {
     CH_LS_X = ADC_CHANNEL_4,  // GPIO32
     CH_LS_Y = ADC_CHANNEL_5,  // GPIO33
     CH_RS_X = ADC_CHANNEL_6,  // GPIO34
-    CH_RS_Y = ADC_CHANNEL_7,  // GPIO35
-    CH_LS_W = ADC_CHANNEL_0,  // GPIO36 (左摇杆W轴)
-    CH_RS_W = ADC_CHANNEL_3   // GPIO39 (右摇杆W轴)
+    CH_RS_Y = ADC_CHANNEL_7   // GPIO35
 } joystick_channel_t;
 
-#define JOYSTICK_CHANNELS_COUNT 6
+#define JOYSTICK_CHANNELS_COUNT 4
 
 // 通道映射函数
 static int channel_to_index(joystick_channel_t channel)
@@ -173,13 +201,11 @@ static int channel_to_index(joystick_channel_t channel)
         case ADC_CHANNEL_5: return 1; // CH_LS_Y
         case ADC_CHANNEL_6: return 2; // CH_RS_X
         case ADC_CHANNEL_7: return 3; // CH_RS_Y
-        case ADC_CHANNEL_0: return 4; // CH_LS_W
-        case ADC_CHANNEL_3: return 5; // CH_RS_W
         default: return 0;
     }
 }
 static const adc_channel_t joystick_channels[JOYSTICK_CHANNELS_COUNT] = {
-    CH_LS_X, CH_LS_Y, CH_RS_X, CH_RS_Y, CH_LS_W, CH_RS_W
+    CH_LS_X, CH_LS_Y, CH_RS_X, CH_RS_Y
 };
 
 static adc_oneshot_unit_handle_t adc1_handle;
@@ -204,23 +230,10 @@ static const joystick_calib_t calib_left_x_sensitive = {
     .lib_min = 0xFA,    .lib_center = 0x740, .lib_max = 0xF47
 };
 
-// 左摇杆X轴 - 精细模式
-static const joystick_calib_t calib_left_x_precise = {
-    .phys_min = 0,         .phys_center = 1835, .phys_max = 4095,
-    .deadzone = 100,    .invert = true,
-    .lib_min = 0xFA,    .lib_center = 0x740, .lib_max = 0xF47
-};
 
 // 左摇杆Y轴 - 灵敏模式(默认)
 static const joystick_calib_t calib_left_y_sensitive = {
     .phys_min = 1335,      .phys_center = 1735, .phys_max = 2135,
-    .deadzone = 100,    .invert = true,
-    .lib_min = 0xFA,    .lib_center = 0x740, .lib_max = 0xF47
-};
-
-// 左摇杆Y轴 - 精细模式
-static const joystick_calib_t calib_left_y_precise = {
-    .phys_min = 0,         .phys_center = 1735, .phys_max = 4095,
     .deadzone = 100,    .invert = true,
     .lib_min = 0xFA,    .lib_center = 0x740, .lib_max = 0xF47
 };
@@ -232,13 +245,6 @@ static const joystick_calib_t calib_right_x_sensitive = {
     .lib_min = 0xFA,    .lib_center = 0x740 + 0x80, .lib_max = 0xF47
 };
 
-// 右摇杆X轴 - 精细模式
-static const joystick_calib_t calib_right_x_precise = {
-    .phys_min = 0,         .phys_center = 1835, .phys_max = 4095,
-    .deadzone = 100,    .invert = true,
-    .lib_min = 0xFA,    .lib_center = 0x740 + 0x80, .lib_max = 0xF47
-};
-
 // 右摇杆Y轴 - 灵敏模式(默认)
 static const joystick_calib_t calib_right_y_sensitive = {
     .phys_min = 1495,      .phys_center = 1845, .phys_max = 2195,
@@ -246,24 +252,7 @@ static const joystick_calib_t calib_right_y_sensitive = {
     .lib_min = 0xFA,    .lib_center = 0x740 + 0x80, .lib_max = 0xF47
 };
 
-// 右摇杆Y轴 - 精细模式
-static const joystick_calib_t calib_right_y_precise = {
-    .phys_min = 0,         .phys_center = 1845, .phys_max = 4095,
-    .deadzone = 100,    .invert = false,
-    .lib_min = 0xFA,    .lib_center = 0x740 + 0x80, .lib_max = 0xF47
-};
-
 //============================================= 摇杆状态变量 =============================================
-typedef enum {
-    JOYSTICK_MODE_SENSITIVE,  // 灵敏模式
-    JOYSTICK_MODE_PRECISE     // 精细模式
-} joystick_mode_t;
-
-static joystick_mode_t left_stick_mode = JOYSTICK_MODE_SENSITIVE;
-static joystick_mode_t right_stick_mode = JOYSTICK_MODE_SENSITIVE;
-
-#define W_AXIS_DEADZONE 1400  // W轴死区范围
-#define W_AXIS_CENTER 1800   // W轴中心值
 
 // 摇杆值映射函数
 static uint16_t map_joystick_value(uint16_t raw, const joystick_calib_t* calib)
@@ -387,9 +376,7 @@ static int read_adc_raw(joystick_channel_t channel)
         1835,  // CH_LS_X
         1735,  // CH_LS_Y
         1835,  // CH_RS_X
-        1845,  // CH_RS_Y
-        1800,  // CH_LS_W
-        1800   // CH_RS_W
+        1845   // CH_RS_Y
     };
     
     int index = channel_to_index(channel);
@@ -425,13 +412,12 @@ void local_button_cb()
 
     hoja_button_data.button_right   = !util_getbit(register_read_low, GPIO_BTN_A);
     hoja_button_data.button_down    = !util_getbit(register_read_low, GPIO_BTN_B);
-    hoja_button_data.button_up      = !util_getbit(register_read_low, GPIO_BTN_X);
+    hoja_button_data.button_up    = !util_getbit(register_read_low, GPIO_BTN_X);
     hoja_button_data.button_left    = !util_getbit(register_read_low, GPIO_BTN_Y);
-
-    hoja_button_data.trigger_zl     = !util_getbit(register_read_low, GPIO_BTN_ZL);
     
     // 使用触摸板检测ZR触发
-    hoja_button_data.trigger_zr     = is_touched();
+    hoja_button_data.trigger_zl     = is_touched_zl();
+    hoja_button_data.trigger_zr     = is_touched_zr();
     
     // 从TCA9555读取的按钮 (使用宏定义)
     // Port0按钮
@@ -452,40 +438,17 @@ void local_button_cb()
 
 // 摇杆数据回调函数
 void local_analog_cb() 
-{
-    // 读取W轴值并更新模式
-    int ls_w_raw = read_adc_raw(CH_LS_W);
-    int rs_w_raw = read_adc_raw(CH_RS_W);
-    
-    // 更新左摇杆模式
-    if (ls_w_raw < (W_AXIS_CENTER - W_AXIS_DEADZONE)) {
-        left_stick_mode = JOYSTICK_MODE_SENSITIVE;
-    } else if (ls_w_raw > (W_AXIS_CENTER + W_AXIS_DEADZONE)) {
-        left_stick_mode = JOYSTICK_MODE_PRECISE;
-    }
-    
-    // 更新右摇杆模式
-    if (rs_w_raw < (W_AXIS_CENTER - W_AXIS_DEADZONE)) {
-        right_stick_mode = JOYSTICK_MODE_SENSITIVE;
-    } else if (rs_w_raw > (W_AXIS_CENTER + W_AXIS_DEADZONE)) {
-        right_stick_mode = JOYSTICK_MODE_PRECISE;
-    }
-    
+{      
     // 读取原始ADC值
     int ls_x_raw = read_adc_raw(CH_LS_X);
     int ls_y_raw = read_adc_raw(CH_LS_Y);
     int rs_x_raw = read_adc_raw(CH_RS_X);
     int rs_y_raw = read_adc_raw(CH_RS_Y);
     
-    // 根据当前模式选择校准配置并映射值
-    const joystick_calib_t* left_x_calib = (left_stick_mode == JOYSTICK_MODE_SENSITIVE) ? 
-                                          &calib_left_x_sensitive : &calib_left_x_precise;
-    const joystick_calib_t* left_y_calib = (left_stick_mode == JOYSTICK_MODE_SENSITIVE) ? 
-                                          &calib_left_y_sensitive : &calib_left_y_precise;
-    const joystick_calib_t* right_x_calib = (right_stick_mode == JOYSTICK_MODE_SENSITIVE) ? 
-                                           &calib_right_x_sensitive : &calib_right_x_precise;
-    const joystick_calib_t* right_y_calib = (right_stick_mode == JOYSTICK_MODE_SENSITIVE) ? 
-                                           &calib_right_y_sensitive : &calib_right_y_precise;
+    const joystick_calib_t* left_x_calib = &calib_left_x_sensitive;
+    const joystick_calib_t* left_y_calib = &calib_left_y_sensitive;
+    const joystick_calib_t* right_x_calib = &calib_right_x_sensitive;
+    const joystick_calib_t* right_y_calib = &calib_right_y_sensitive;
     
     // 应用校准映射
     hoja_analog_data.ls_x = map_joystick_value(ls_x_raw, left_x_calib);
@@ -507,12 +470,6 @@ void local_event_cb(hoja_event_type_t type, uint8_t evt, uint8_t param)
 void app_main(void)
 {
     const char* TAG = "app_main";
-
-    // // These are for debugging the calibration
-    // (void)calib_left_x;
-    // (void)calib_left_y;
-    // (void)calib_right_x;
-    // (void)calib_right_y;
 
     // 初始化触摸板
     custom_touch_init();
