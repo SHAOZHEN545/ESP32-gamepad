@@ -9,10 +9,14 @@
 #include "driver/uart.h"
 #include "esp_log.h"
 
+// 默认开启鼠标辅助瞄准功能
+static bool g_mouse_mode_enabled = true;
+
 //============================================= 触摸板配置 =============================================
 #define TOUCH_PAD_ZR TOUCH_PAD_NUM0 // ZR用TOUCH0
 #define TOUCH_PAD_ZL TOUCH_PAD_NUM4
 static const char *TOUCH_TAG = "TOUCH";
+
 static uint16_t touch_base_value_zr = 0; // ZR (Touch 0) 的基准值
 static uint16_t touch_base_value_zl = 0; // ZL (Touch 4) 的基准值
 static bool touch_calibrated_zr = false;
@@ -62,6 +66,9 @@ void custom_touch_init()
     ESP_LOGI(TOUCH_TAG, "触摸板(ZL)校准完成，基准值: %d", touch_base_value_zl);
 }
 
+// 定义调试打印的时间间隔（毫秒），例如 500ms 打印一次
+#define TOUCH_DEBUG_INTERVAL_MS 500
+
 // 检测ZR触摸状态
 bool is_touched_zr()
 {
@@ -71,8 +78,22 @@ bool is_touched_zr()
     ESP_ERROR_CHECK(touch_pad_read_raw_data(TOUCH_PAD_ZR, &touch_value));
     
     // 当触摸值比基准值低30%时判定为触摸
-    // 你可以调整这个阈值（0.7表示30%下降，0.6表示40%下降等）
     const float touch_threshold = 0.78f;
+    
+    // --- 优化后的调试打印 ---
+    // static 变量会保留上一次函数调用时的值
+    static uint32_t last_print_time = 0;
+    uint32_t current_time = esp_log_timestamp(); // 获取当前系统运行毫秒数
+
+    // // For debugging: print every TOUCH_DEBUG_INTERVAL_MS milliseconds
+    // if (current_time - last_print_time > TOUCH_DEBUG_INTERVAL_MS) {
+    //     printf("[DEBUG ZR] Val: %d, Base: %d, Threshold: %d\n", 
+    //            touch_value, 
+    //            touch_base_value_zr, 
+    //            (int)(touch_base_value_zr * touch_threshold));
+    //     last_print_time = current_time;
+    // }
+    // ----------------------
     
     return touch_value < (touch_base_value_zr * touch_threshold);
 }
@@ -88,9 +109,22 @@ bool is_touched_zl()
     // 当触摸值比基准值低30%时判定为触摸
     const float touch_threshold = 0.78f;
 
+    // --- 优化后的调试打印 ---
+    static uint32_t last_print_time = 0;
+    uint32_t current_time = esp_log_timestamp();
+
+    // // For debugging: print every TOUCH_DEBUG_INTERVAL_MS milliseconds
+    // if (current_time - last_print_time > TOUCH_DEBUG_INTERVAL_MS) {
+    //     printf("[DEBUG ZL] Val: %d, Base: %d, Threshold: %d\n", 
+    //            touch_value, 
+    //            touch_base_value_zl, 
+    //            (int)(touch_base_value_zl * touch_threshold));
+    //     last_print_time = current_time;
+    // }
+    // // ----------------------
+
     return touch_value < (touch_base_value_zl * touch_threshold);
 }
-
 //============================================= TCA9555相关配置 =============================================
 // TCA9555 按钮引脚定义
 // Port0
@@ -271,7 +305,7 @@ static const joystick_calib_t calib_left_x_sensitive = {
 // 左摇杆Y轴 - 灵敏模式(默认)
 static const joystick_calib_t calib_left_y_sensitive = {
     .phys_min = 1335,      .phys_center = 1735, .phys_max = 2135,
-    .deadzone = 100,    .invert = true,
+    .deadzone = 100,    .invert = false,
     .lib_min = 0xFA,    .lib_center = 0x740, .lib_max = 0xF47
 };
 
@@ -285,7 +319,7 @@ static const joystick_calib_t calib_right_x_sensitive = {
 // 右摇杆Y轴 - 灵敏模式(默认)
 static const joystick_calib_t calib_right_y_sensitive = {
     .phys_min = 1495,      .phys_center = 1845, .phys_max = 2195,
-    .deadzone = 100,    .invert = false,
+    .deadzone = 100,    .invert = true,
     .lib_min = 0xFA,    .lib_center = 0x740 + 0x80, .lib_max = 0xF47
 };
 
@@ -531,9 +565,9 @@ void local_button_cb()
     hoja_button_data.button_up    = !util_getbit(register_read_low, GPIO_BTN_X);
     hoja_button_data.button_left    = !util_getbit(register_read_low, GPIO_BTN_Y);
     
-    // 使用触摸板检测ZR触发
-    hoja_button_data.trigger_zl     = is_touched_zl();
-    hoja_button_data.trigger_zr     = is_touched_zr();
+    // // 使用触摸板检测ZR触发，这是switch的情况，XBOX认为肩键是模拟扳机，不是按照按键读取的
+    // hoja_button_data.trigger_zl     = is_touched_zl();
+    // hoja_button_data.trigger_zr     = is_touched_zr();
     
     // 从TCA9555读取的按钮 (使用宏定义)
     // Port0按钮
@@ -566,8 +600,8 @@ void local_analog_cb()
 
     // --- 2. 右摇杆 (RS) 根据ZR状态切换控制源 ---
     
-    // 首先检查ZR触摸状态
-    if (is_touched_zr())
+    // 只有当 ZR 被触摸 AND 鼠标模式被允许时，才进入鼠标控制逻辑
+    if (is_touched_zr() && g_mouse_mode_enabled)
     {
         // --- 模式A: ZR按下，使用鼠标控制 ---
         
@@ -617,6 +651,22 @@ void local_analog_cb()
         hoja_analog_data.rs_x = map_joystick_value(rs_x_raw, right_x_calib);
         hoja_analog_data.rs_y = map_joystick_value(rs_y_raw, right_y_calib);
     }
+
+    // --- 3. 处理 ZL/ZR 触摸板映射到线性扳机 (LT/RT) ---
+    
+    // 如果 ZL 被触摸，将 LT 模拟值设为最大(255)，否则为0
+    if (is_touched_zl()) {
+        hoja_analog_data.lt_a = 255; 
+    } else {
+        hoja_analog_data.lt_a = 0;
+    }
+
+    // 如果 ZR 被触摸，将 RT 模拟值设为最大(255)，否则为0
+    if (is_touched_zr()) {
+        hoja_analog_data.rt_a = 255;
+    } else {
+        hoja_analog_data.rt_a = 0;
+    }
 }
 
 // 事件回调函数
@@ -648,10 +698,6 @@ void app_main(void)
     // 初始化ADC
     adc_init();
 
-    // ★★★ 新增：初始化UART并启动鼠标任务 ★★★
-    uart_init();
-    xTaskCreate(ch9350_reader_task, "ch9350_reader_task", 4096, NULL, 5, NULL);
-
     // 设置GPIO配置
     gpio_config_t io_conf = {
         .intr_type = GPIO_INTR_DISABLE,
@@ -660,6 +706,54 @@ void app_main(void)
         .pull_up_en = GPIO_PULLUP_ENABLE,
     };
     gpio_config(&io_conf);
+
+    // =========================================================================
+    // ★★★ 快速启动检测：检测按键 A (GPIO 19) 是否被按住 ★★★
+    // =========================================================================
+    
+    // 直接检测开机瞬间是否按下了 A
+    if (gpio_get_level(GPIO_BTN_A) == 0) 
+    {
+        ESP_LOGW(TAG, "检测到 A 键按下...");
+        
+        // 简单防抖/确认：延迟一小会儿（例如 100ms），再次确认是否还按着
+        // 如果是误触，这 100ms 内可能就松开了；如果是长按，肯定还在
+        vTaskDelay(pdMS_TO_TICKS(100)); 
+
+        if (gpio_get_level(GPIO_BTN_A) == 0) 
+        {
+            // 确认用户意图：禁用鼠标模式
+            g_mouse_mode_enabled = false;
+            ESP_LOGW(TAG, ">>> 鼠标模式已禁用 (纯手柄模式) <<<");
+
+            // ★★★ 关键：死循环等待用户松手 ★★★
+            // 因为检测很快，用户手指肯定还没抬起来。
+            // 必须卡在这里，直到用户松开 A 键，防止进游戏误触。
+            while(gpio_get_level(GPIO_BTN_A) == 0) {
+                vTaskDelay(pdMS_TO_TICKS(50)); // 每 50ms 查一次
+            }
+            ESP_LOGI(TAG, "A 键已松开，继续启动...");
+        }
+    }
+    else {
+        ESP_LOGI(TAG, "启动时未检测到 A 键，启用鼠标模式 (默认)。");
+    }
+
+    // =========================================================================
+    // ★★★ 根据刚才的判断结果，决定是否启动 UART 和 鼠标任务 ★★★
+    // =========================================================================
+    
+    if (g_mouse_mode_enabled)
+    {
+        uart_init();
+        // 只有开启模式才创建任务，节省资源
+        xTaskCreate(ch9350_reader_task, "ch9350_reader_task", 4096, NULL, 5, NULL);
+        ESP_LOGI(TAG, "CH9350 鼠标服务已启动。");
+    }
+    else
+    {
+        ESP_LOGI(TAG, "CH9350 鼠标服务已跳过 (省电/省内存模式)。");
+    }
 
     // 注册回调函数
     hoja_register_button_callback(local_button_cb);
@@ -672,8 +766,8 @@ void app_main(void)
         ESP_LOGE(TAG, "Failed to initialize HOJA.");
     }
     else {
-        // 设置并启动Nintendo Switch核心
-        hoja_set_core(HOJA_CORE_NS);
+        // 设置并启动X input核心
+        hoja_set_core(HOJA_CORE_BT_XINPUT);
         hoja_start_core();
     }
 }
