@@ -9,8 +9,10 @@
 #include "driver/uart.h"
 #include "esp_log.h"
 
-// 默认开启鼠标辅助瞄准功能
-static bool g_mouse_mode_enabled = true;
+// ================= 全局状态控制 =================
+static bool g_mouse_mode_enabled = true;      // 默认开启鼠标
+static hoja_core_t g_current_core = HOJA_CORE_NS; // 默认 Switch 模式
+
 
 //============================================= 触摸板配置 =============================================
 #define TOUCH_PAD_ZR TOUCH_PAD_NUM0 // ZR用TOUCH0
@@ -274,7 +276,7 @@ static const joystick_calib_t calib_left_x_sensitive = {
 // 左摇杆Y轴 - 灵敏模式(默认)
 static const joystick_calib_t calib_left_y_sensitive = {
     .phys_min = 1335,      .phys_center = 1735, .phys_max = 2135,
-    .deadzone = 100,    .invert = true,
+    .deadzone = 100,    .invert = false,
     .lib_min = 0xFA,    .lib_center = 0x740, .lib_max = 0xF47
 };
 
@@ -288,7 +290,7 @@ static const joystick_calib_t calib_right_x_sensitive = {
 // 右摇杆Y轴 - 灵敏模式(默认)
 static const joystick_calib_t calib_right_y_sensitive = {
     .phys_min = 1495,      .phys_center = 1845, .phys_max = 2195,
-    .deadzone = 100,    .invert = false,
+    .deadzone = 100,    .invert = true,
     .lib_min = 0xFA,    .lib_center = 0x740 + 0x80, .lib_max = 0xF47
 };
 
@@ -534,9 +536,24 @@ void local_button_cb()
     hoja_button_data.button_up    = !util_getbit(register_read_low, GPIO_BTN_X);
     hoja_button_data.button_left    = !util_getbit(register_read_low, GPIO_BTN_Y);
     
-    // 使用触摸板检测ZR触发
-    hoja_button_data.trigger_zl     = is_touched_zl();
-    hoja_button_data.trigger_zr     = is_touched_zr();
+    // ★★★ 扳机键 (Triggers) 混合逻辑 ★★★
+    // 我们同时计算出布尔值，并分别赋给 button_data (Switch用) 和 analog_data (Xbox用)
+    
+    // ZL / LT 状态
+    bool zl_active = is_touched_zl(); // 这里你可以加上 || 物理按键
+    
+    // ZR / RT 状态
+    bool zr_active = is_touched_zr(); // 这里你可以加上 || 物理按键
+
+    // -- 赋值给 Switch (数字量) --
+    hoja_button_data.trigger_zl = zl_active;
+    hoja_button_data.trigger_zr = zr_active;
+
+    // -- 赋值给 Xbox (模拟量 0-255) --
+    // 注意：hoja_analog_data 是全局变量，可以直接写
+    hoja_analog_data.lt_a = zl_active ? 255 : 0;
+    hoja_analog_data.rt_a = zr_active ? 255 : 0;
+
     
     // 从TCA9555读取的按钮 (使用宏定义)
     // Port0按钮
@@ -558,14 +575,25 @@ void local_button_cb()
 // 摇杆数据回调函数
 void local_analog_cb() 
 {
-    // --- 1. 左摇杆 (LS) 始终由ADC控制 ---
+    // ★★★ 判断当前是否为 Switch 模式 ★★★
+    // 如果是 Switch 模式，我们需要翻转 Y 轴的 invert 设置
+    // (因为 Xbox 和 Switch 对 Y 轴的定义通常是反的)
+    bool invert_flip_needed = (g_current_core == HOJA_CORE_NS);
+
+    // --- 1. 左摇杆 (LS) ---
     int ls_x_raw = read_adc_raw(CH_LS_X);
     int ls_y_raw = read_adc_raw(CH_LS_Y);
-    const joystick_calib_t* left_x_calib = &calib_left_x_sensitive;
-    const joystick_calib_t* left_y_calib = &calib_left_y_sensitive;
     
-    hoja_analog_data.ls_x = map_joystick_value(ls_x_raw, left_x_calib);
-    hoja_analog_data.ls_y = map_joystick_value(ls_y_raw, left_y_calib);
+    // 使用 X 轴默认配置
+    hoja_analog_data.ls_x = map_joystick_value(ls_x_raw, &calib_left_x_sensitive);
+
+    // 处理 Y 轴配置 (创建副本以修改 invert)
+    joystick_calib_t ly_conf = calib_left_y_sensitive; 
+    if (invert_flip_needed) {
+        ly_conf.invert = !ly_conf.invert; // 翻转反转逻辑
+    }
+    hoja_analog_data.ls_y = map_joystick_value(ls_y_raw, &ly_conf);
+
 
     // --- 2. 右摇杆 (RS) 根据ZR状态切换控制源 ---
     
@@ -589,6 +617,8 @@ void local_analog_cb()
             int stick_x = JOYSTICK_RS_CENTER + (int)(current_delta_x * MOUSE_SENSITIVITY);
             
             // Y轴反转 (鼠标上移 = 镜头上移)
+            // ★注意：如果 Switch 模式下鼠标视角也反了，你需要修改这里的 + / - 号
+            // 目前这里保持原样，只处理物理摇杆的 invert 参数
             int stick_y = JOYSTICK_RS_CENTER - (int)(current_delta_y * MOUSE_SENSITIVITY);
 
             // 分配限制后的值
@@ -603,7 +633,6 @@ void local_analog_cb()
                 hoja_analog_data.rs_x = JOYSTICK_RS_CENTER;
                 hoja_analog_data.rs_y = JOYSTICK_RS_CENTER;
             }
-            // (如果未超时，hoja_analog_data.rs_x/y 会保持上次的值，实现视角平滑)
         }
     }
     else
@@ -613,12 +642,15 @@ void local_analog_cb()
         int rs_x_raw = read_adc_raw(CH_RS_X);
         int rs_y_raw = read_adc_raw(CH_RS_Y);
         
-        const joystick_calib_t* right_x_calib = &calib_right_x_sensitive;
-        const joystick_calib_t* right_y_calib = &calib_right_y_sensitive;
+        // X 轴保持原样
+        hoja_analog_data.rs_x = map_joystick_value(rs_x_raw, &calib_right_x_sensitive);
         
-        // 应用校准映射
-        hoja_analog_data.rs_x = map_joystick_value(rs_x_raw, right_x_calib);
-        hoja_analog_data.rs_y = map_joystick_value(rs_y_raw, right_y_calib);
+        // Y 轴处理 (创建副本以修改 invert)
+        joystick_calib_t ry_conf = calib_right_y_sensitive;
+        if (invert_flip_needed) {
+            ry_conf.invert = !ry_conf.invert; // 翻转反转逻辑
+        }
+        hoja_analog_data.rs_y = map_joystick_value(rs_y_raw, &ry_conf);
     }
 }
 
@@ -661,36 +693,51 @@ void app_main(void)
     gpio_config(&io_conf);
 
     // =========================================================================
-    // ★★★ 快速启动检测：检测按键 A (GPIO 19) 是否被按住 ★★★
+    // ★★★ 快速启动状态配置检测 ★★★
+    // 检测到按键 A (GPIO 19) 被按住则不用鼠标辅助瞄准
+    // 检测到按键 B (GPIO 18) 被按住则切换到 Xbox 模式
     // =========================================================================
     
-    // 直接检测开机瞬间是否按下了 A
-    if (gpio_get_level(GPIO_BTN_A) == 0) 
+    // 读取 A 和 B 的状态 (低电平有效)
+    int btn_a = gpio_get_level(GPIO_BTN_A);
+    int btn_b = gpio_get_level(GPIO_BTN_B);
+
+    if (btn_a == 0 || btn_b == 0)
     {
-        ESP_LOGW(TAG, "检测到 A 键按下...");
-        
-        // 简单防抖/确认：延迟一小会儿（例如 100ms），再次确认是否还按着
-        // 如果是误触，这 100ms 内可能就松开了；如果是长按，肯定还在
-        vTaskDelay(pdMS_TO_TICKS(100)); 
+        ESP_LOGW(TAG, "检测到启动按键...");
+        vTaskDelay(pdMS_TO_TICKS(100)); // 防抖
 
-        if (gpio_get_level(GPIO_BTN_A) == 0) 
-        {
-            // 确认用户意图：禁用鼠标模式
+        // 再次确认
+        btn_a = gpio_get_level(GPIO_BTN_A);
+        btn_b = gpio_get_level(GPIO_BTN_B);
+
+        // -- 判断 A 键 (鼠标开关) --
+        if (btn_a == 0) {
             g_mouse_mode_enabled = false;
-            ESP_LOGW(TAG, ">>> 鼠标模式已禁用 (纯手柄模式) <<<");
+            ESP_LOGW(TAG, "配置：鼠标模式 [禁用]");
+        } else {
+            ESP_LOGI(TAG, "配置：鼠标模式 [启用]");
+        }
 
-            // ★★★ 关键：死循环等待用户松手 ★★★
-            // 因为检测很快，用户手指肯定还没抬起来。
-            // 必须卡在这里，直到用户松开 A 键，防止进游戏误触。
-            while(gpio_get_level(GPIO_BTN_A) == 0) {
-                vTaskDelay(pdMS_TO_TICKS(50)); // 每 50ms 查一次
+        // -- 判断 B 键 (平台选择) --
+        if (btn_b == 0) {
+            g_current_core = HOJA_CORE_BT_XINPUT; // 使用 XInput (Xbox) 模式
+            ESP_LOGW(TAG, "配置：游戏平台 [XBOX/PC]");
+        } else {
+            g_current_core = HOJA_CORE_NS;     // 使用 Switch 模式
+            ESP_LOGI(TAG, "配置：游戏平台 [Nintendo Switch]");
+        }
+
+        // -- 等待松手 (死循环) --
+        if (btn_a == 0 || btn_b == 0) {
+            ESP_LOGW(TAG, "等待按键释放...");
+            while(gpio_get_level(GPIO_BTN_A) == 0 || gpio_get_level(GPIO_BTN_B) == 0) {
+                vTaskDelay(pdMS_TO_TICKS(50));
             }
-            ESP_LOGI(TAG, "A 键已松开，继续启动...");
+            ESP_LOGI(TAG, "按键已释放，启动系统！");
         }
     }
-    else {
-        ESP_LOGI(TAG, "启动时未检测到 A 键，启用鼠标模式 (默认)。");
-    }
+
 
     // =========================================================================
     // ★★★ 根据刚才的判断结果，决定是否启动 UART 和 鼠标任务 ★★★
@@ -719,8 +766,8 @@ void app_main(void)
         ESP_LOGE(TAG, "Failed to initialize HOJA.");
     }
     else {
-        // 设置并启动Nintendo Switch核心
-        hoja_set_core(HOJA_CORE_NS);
+        // 设置并启动选定的核心（Switch 或 Xbox）
+        hoja_set_core(g_current_core);
         hoja_start_core();
     }
 }
