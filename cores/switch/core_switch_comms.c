@@ -132,9 +132,26 @@ void ns_comms_handle_subcommand(uint8_t command, uint16_t len, uint8_t* p_data)
             break;
 
         case SUBC_ENABLE_IMU:
-            ESP_LOGI(TAG, "SUBC - Enable IMU (Sixaxis).");
+        {
+            uint8_t imu_mode = NS_IMU_MODE_OFF;
+            if (len > SUB_C_DATA_IDX)
+            {
+                imu_mode = p_data[SUB_C_DATA_IDX];
+            }
+
+            ESP_LOGI(TAG, "SUBC - Enable IMU (Sixaxis): %d", imu_mode);
             ns_report_setack(0x80);
-            // Enable Sixaxis
+            ns_imu_set_mode(imu_mode);
+            break;
+        }
+
+        case SUBC_SET_IMUSENSITIVITY:
+            ESP_LOGI(TAG, "SUBC - Set IMU sensitivity.");
+            ns_report_setack(0x80);
+            if (len > SUB_C_DATA_IDX)
+            {
+                ns_imu_set_sensitivity(&p_data[SUB_C_DATA_IDX], len - SUB_C_DATA_IDX);
+            }
             break;
 
         case SUBC_ENABLE_VIBRATION:
