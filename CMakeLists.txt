@@ -3,6 +3,7 @@ idf_component_register(
     SRCS "hoja_frontend.c" "hoja_backend.c"
 "hoja_settings.c" "cores/switch/core_switch_spi.c" 
 "cores/switch/core_switch_reports.c" "cores/switch/core_switch_input.c"
+"cores/switch/core_switch_imu.c"
 "cores/core_switch_backend.c" "cores/switch/core_switch_controller.c"
 "cores/switch/core_switch_comms.c" "cores/core_snes_backend.c"
 "cores/core_gamecube_backend.c" "utilities/util_joybus_rmt.c"

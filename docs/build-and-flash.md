@@ -67,8 +67,9 @@ The script starts the serial monitor after flashing. Press `Ctrl+]` to exit it.
 
 Power or reset the controller without holding A or B. If Switch does not reconnect,
 open **Controllers → Change Grip/Order** and put the controller through pairing
-there. Test every button, both sticks, ZL/ZR, Home, Capture, and the mouse-assisted
-right stick.
+there. Test every button, both sticks, ZL/ZR, Home, Capture, and the CH9350
+mouse right button as an alternate ZR. In a game with native gyro aiming,
+compare aiming while holding mouse right button versus the ZR touch pedal.
 
 ## XInput test
 

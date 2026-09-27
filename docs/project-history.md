@@ -23,6 +23,10 @@ record of their original behavior.
 - XInput reports include left- and right-stick click buttons.
 - Switch report handling was adjusted to preserve held-button state.
 - The HOJA button task stack was increased from 2048 to 4096 bytes.
+- Switch standard reports now include optional three-sample IMU payloads after
+  the Switch enables IMU. This shared transport exists so the active controller
+  can map CH9350 mouse deltas to native Switch gyro aiming; it is gated to the
+  Switch core and does not alter XInput report handling.
 
 These changes are part of the working controller baseline and must be reviewed when
 merging future upstream HOJA updates.

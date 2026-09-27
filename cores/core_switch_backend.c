@@ -241,6 +241,8 @@ hoja_err_t core_ns_start(void)
     esp_err_t ret;
     hoja_err_t err;
 
+    ns_imu_init();
+
     // Load Controller data
     ns_controller_data.battery_level_full = 0x04;
     ns_controller_data.connection_info = 0x00;

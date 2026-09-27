@@ -6,9 +6,9 @@ firmware supports Nintendo Switch Pro Controller and Bluetooth XInput modes,
 physical buttons, two analog sticks, capacitive ZL/ZR triggers, a TCA9555 button
 expander, and optional CH9350 mouse input.
 
-The hardware-verified firmware is in [`apps/controller`](apps/controller). It was
-last verified from commit `948c4c2` with ESP-IDF 5.0.1 before the repository
-reorganization.
+The hardware-verified firmware is in [`apps/controller`](apps/controller). The
+refactored firmware at commit `1baf253` was built with ESP-IDF 5.0.1 and verified
+on hardware in both Nintendo Switch Pro Controller and PC XInput modes.
 
 ## Repository map
 

@@ -1,4 +1,5 @@
 #include "core_switch_reports.h"
+#include "core_switch_imu.h"
 
 uint8_t ns_input_report_id = 0x00;
 uint8_t ns_input_report[NS_INPUT_REPORT_BUFFERSIZE] = {};
@@ -181,7 +182,7 @@ void ns_report_task_sendshort(void * parameters)
 }
 
 // Length of HID report for standard or full inputs.
-#define NS_REPORT_STANDARD_LEN  13
+#define NS_REPORT_STANDARD_LEN  (NS_IMU_STANDARD_REPORT_OFFSET + NS_IMU_STANDARD_REPORT_SIZE)
 
 // Task used to send standard or "full" inputs.
 // Only sends input when there is a change to the 
@@ -201,9 +202,9 @@ void ns_report_task_sendstandard(void * parameters)
         hoja_button_remap_process();
         ns_input_translate_full(&ns_input_long);
 
-        // Only send an input update if our comparison is different.
-        // Saves power and processing :)
-        if (ns_input_compare_full(&ns_input_long, &ns_input_long_last))
+        // Sixaxis reports are time-based, so continue sending at the input
+        // cadence while the Switch has enabled IMU input.
+        if (ns_input_compare_full(&ns_input_long, &ns_input_long_last) || ns_imu_is_enabled())
         {   
             ns_report_clear();
         
@@ -214,8 +215,7 @@ void ns_report_task_sendstandard(void * parameters)
 
             ns_report_settimer();
             ns_report_setbattconn();
-            //ns_input_report_size = 13;
-            ns_input_report[12] = 0x70;
+            ns_imu_pack_standard_report(ns_input_report);
 
             esp_bt_hid_device_send_report(ESP_HIDD_REPORT_TYPE_INTRDATA, NS_REPORT_FULL, NS_REPORT_STANDARD_LEN, ns_input_report);
 
@@ -226,7 +226,7 @@ void ns_report_task_sendstandard(void * parameters)
         // Reset HOJA buttons
         // The reset function called below should be commented out. Otherwise the button status will constantly and wrongly flip while long-pressing buttons
         // hoja_button_reset();
-        vTaskDelay(8 / portTICK_PERIOD_MS);
+        vTaskDelay(pdMS_TO_TICKS(10));
     }
 }
 
