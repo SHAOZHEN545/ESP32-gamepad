@@ -103,3 +103,15 @@ before starting behavior changes.
   which remains active while gyro aiming. Reader/report timing may add jitter
   but cannot by itself create yaw from zero X input. These are hypotheses, not
   hardware diagnoses. Re-test on Switch is pending for the new gains.
+
+## User follow-up on line tracking and sensitivity — 2026-09-26
+
+- After comparing straight-line mouse movement in GTA V on a regular PC, the
+  user found that their own vertical and horizontal tracing is not perfectly
+  straight there either. The small Switch wobble is currently acceptable in
+  play, so no jitter-filtering or sampling change is planned unless it becomes
+  disruptive. The exact cause of any remaining wobble has not been measured.
+- The user changed the Switch mouse-gyro gains again to yaw 55 and pitch 150
+  and reports that this feels more comfortable. These are the current source
+  values. The exact flashed build and test sequence were not recorded; a clean
+  build from the previous 72/96 source does not validate these newer values.

@@ -10,7 +10,21 @@
 Use an **ESP-IDF 5.0 PowerShell** so that `idf.py`, Python, CMake, Ninja, and the
 ESP32 toolchain are already on `PATH`.
 
-## Clean build
+## Build (usual case)
+
+From the repository root, run this after changing code or calibration values:
+
+```powershell
+cd C:\ESP32-gamepad-project-files\ESP32-gamepad
+.\scripts\build-controller.ps1
+```
+
+This runs `idf.py build` in `apps/controller` and reuses the existing build
+directory. The firmware output is
+`apps/controller/build/esp32-gamepad-controller.bin`. Building does not flash
+the ESP32; use the flash step below when you want to test the new firmware.
+
+## Clean build (only when needed)
 
 From the repository root:
 
@@ -18,6 +32,10 @@ From the repository root:
 cd C:\ESP32-gamepad-project-files\ESP32-gamepad
 .\scripts\build-controller.ps1 -Clean
 ```
+
+`-Clean` runs `idf.py fullclean` before `idf.py build`. Use it when the build
+cache is stale, after changing the ESP-IDF configuration, or when diagnosing
+a build problem. A normal code or sensitivity change does not require it.
 
 The equivalent direct commands are:
 
@@ -44,11 +62,16 @@ Get-CimInstance Win32_SerialPort | Select-Object DeviceID, Name
 
 ## Flash and monitor
 
-Replace `COM5` with the detected port:
+Run this from the repository root, replacing `COM5` with the actual port shown
+by Device Manager (for example, `COM7`):
 
 ```powershell
 .\scripts\flash-controller.ps1 -Port COM5
 ```
+
+`-Port` is the script's port parameter; PowerShell parameter names are
+case-insensitive, so `-port` also works. `COM5` is only an example, not a
+fixed value. Use the port your ESP32 currently has.
 
 This board does not enter the ESP32 download bootloader automatically. Start the
 flash command, then use the board buttons when the terminal shows `Connecting...`:

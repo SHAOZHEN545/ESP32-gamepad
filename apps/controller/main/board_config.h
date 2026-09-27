@@ -37,7 +37,7 @@
 /* Switch mouse-gyro sensitivity. Mouse X controls yaw (horizontal aim), and
  * mouse Y controls pitch (vertical aim). Lower values slow the corresponding
  * axis. The previous common value was 80; 160 was too fast in hardware. */
-#define BOARD_MOUSE_GYRO_YAW_RAW_PER_DELTA 55
+#define BOARD_MOUSE_GYRO_YAW_RAW_PER_DELTA 40
 #define BOARD_MOUSE_GYRO_PITCH_RAW_PER_DELTA 150
 
 // Analog joystick channels on ADC1.

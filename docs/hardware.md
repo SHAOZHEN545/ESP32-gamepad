@@ -60,10 +60,10 @@ The CH9350 does not provide acceleration, so all accelerometer axes are zero.
 Mouse deltas are drained at the roughly 10 ms Switch report cadence, scaled
 and clamped to the signed 16-bit report range, and reset to zero whenever ZR
 is not held. `BOARD_MOUSE_GYRO_YAW_RAW_PER_DELTA` controls horizontal aim
-(mouse X, currently 72); `BOARD_MOUSE_GYRO_PITCH_RAW_PER_DELTA` controls
-vertical aim (mouse Y, currently 96). Smaller values slow the corresponding
-axis; each change requires a rebuild and flash. Both axes previously used 80,
-and the original test value was 160.
+(mouse X, currently 55); `BOARD_MOUSE_GYRO_PITCH_RAW_PER_DELTA` controls
+vertical aim (mouse Y, currently 150). Smaller values slow the corresponding
+axis; each change requires a rebuild and flash. Earlier test values were 80
+for both axes and, initially, 160.
 
 In XInput mode, the original ZR touch pedal still enables mouse-to-right-stick
 aim and sets the right trigger. The mouse buttons are not mapped in that mode.
