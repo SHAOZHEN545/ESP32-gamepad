@@ -21,7 +21,13 @@ record of their original behavior.
 ## Shared-library changes in this fork
 
 - XInput reports include left- and right-stick click buttons.
-- Switch report handling was adjusted to preserve held-button state.
+- Switch report handling was adjusted to preserve held-button state. Upstream,
+  `ns_report_task_sendstandard()` in `cores/switch/core_switch_reports.c` calls
+  `hoja_button_reset()` after every report, and the upstream example ORs each
+  new reading into the button state (`|=`). Together these made a long-pressed
+  button flip on and off. The fork comments out the reset call, and the
+  controller assigns button state directly (`=`) on every read, so holding a
+  button reports it as held.
 - The HOJA button task stack was increased from 2048 to 4096 bytes.
 - Switch standard reports now include optional three-sample IMU payloads after
   the Switch enables IMU. This shared transport exists so the active controller
