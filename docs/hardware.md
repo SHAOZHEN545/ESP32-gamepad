@@ -46,6 +46,8 @@ These inputs are active low and use the ESP32 internal pull-ups.
 | Right Y | GPIO35 / channel 7 |
 
 Calibration values are currently board-specific and live in `analog_sticks.c`.
+The stick wiring is soldered: each axis is a potentiometer, so extra contact
+resistance would show up as error in the measured position.
 
 ### Stick calibration
 
@@ -118,8 +120,10 @@ See `build-and-flash.md` for the sequence.
 
 ## Enclosure
 
-The working prototype is a repurposed Thorlabs shipping box, about 2.5 inches
-deep, with holes cut for each stick and button.
+The working prototype is the cardboard box a Thorlabs power meter ships in,
+about 2.5 inches deep, with holes cut for each stick and button. Cardboard can
+be cut with a knife, which made it easy to try a layout before committing to a
+harder material.
 
 ![Top view of the panel](images/panel-top.jpg)
 

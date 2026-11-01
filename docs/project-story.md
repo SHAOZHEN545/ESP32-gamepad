@@ -22,8 +22,8 @@ The prototype uses:
 - two foot-sized aluminum plates wired to the ESP32's capacitive touch inputs,
   used as foot pedals.
 
-The enclosure is a repurposed Thorlabs shipping box with holes cut for each
-part. With it, the
+The enclosure is the cardboard box a Thorlabs power meter shipped in, with holes
+cut for each part (see [Building the box](#building-the-box)). With it, the
 prototype reproduced every button and stick of a Switch Pro Controller. Gyro and
 rumble were left out: on a box this large they add little.
 
@@ -107,6 +107,23 @@ enlarged.
   Capture and Home, and a reconnect button. That does not fit the WROOM-32's
   free pins, so a TCA9555 I2C expander now carries L/R, the stick clicks,
   Minus/Plus, Capture, and Home.
+
+## Building the box
+
+When I started on the layout, I was not sure the project would work, or that my
+panel dimensions would be comfortable, so I wanted an enclosure I could cut and
+recut freely. The box a Thorlabs power meter ships in turned out to be right:
+its depth suits the parts mounted under the panel, its top is large enough for
+both analog sticks, the digital stick, and all the buttons, and because it is
+cardboard I could cut every hole with a knife.
+
+I am an experimental AMO physicist, and building homemade electronics boxes is
+routine in the lab; this felt much the same. One example: the analog sticks are
+potentiometers, so any extra resistance in their wiring turns into error in the
+measured stick position. To keep that small, I soldered their connections with
+a soldering iron in the lab.
+
+![Inside the box: the ESP32 on a screw-terminal breakout board, the CH9350 module at the front, and the stick and button wiring on the lid](images/wiring-inside.jpg)
 
 ## Since then
 
